@@ -1,15 +1,15 @@
-# 👋 Hi, I'm Ugochi — Data Scientist and Analyst
+#  Hi, I'm Ugochi — Data Scientist and Analyst
 
 Welcome to my GitHub! 
 I'm a strategic, data-driven professional with deep experience in product development, business intelligence, and data analytics. 
 
-## 🚀 About Me
-- 📚 MSc in Data Science (RGU) | MSc in Information Technology (Glasgow) | BSc (Hons) in Geology (Ghana)
-- 🔭 I’m currently working on:
+## About Me
+- MSc in Data Science (RGU) | MSc in Information Technology (Glasgow) | BSc (Hons) in Geology (Ghana)
+- I’m currently working on:
   - **Credit Card Churn Prediction** dashboard using Power BI & XGBoost
   - **Customer Survey Analysis** project for satisfaction & churn prediction
   - **Healthcare Stay Prediction** app using Streamlit & Random Forest
-- 📈 My MSc Dissertation:  
+- My MSc Dissertation:  
   **"International Postgraduate Student Enrolment in Scottish Universities: A Data-Driven Analysis with a Focus on Currency Fluctuations"**  
   - Analysed data from 18 universities and 15 countries (2014–2022)  
   - Used regression, clustering, ARIMA forecasting, and Power BI dashboards  
@@ -18,17 +18,17 @@ I'm a strategic, data-driven professional with deep experience in product develo
 - 💬 Ask me about:
   - BI dashboards, churn modelling, NLP, and data storytelling
 - 📫 Reach me via [LinkedIn](https://www.linkedin.com/in/ugochi-ugbomeh-15967867) or email (ugochi.nicole.ugbomeh@gmail.com) 
-- 🌐 Website: https://yourusername.github.io (coming soon)
+- 🌐 Website: https://ugochiugbomeh.github.io (coming soon)
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- 💻 **Languages**: Python, R, SQL, HTML/CSS, JavaScript
-- 📊 **Tools**: Power BI, Tableau, Excel  
-- 📦 **Libraries**: pandas, NumPy, scikit-learn, XGBoost, statsmodels, SHAP, Many more  
-- 📉 **ML & Analytics**: Logistic Regression, Time Series (ARIMA), Decision Trees, Clustering  
-- 🌍 **Data Integration**: Power Query, API, ETL pipelines  
-- ☁️ **Cloud & Deployment**: Streamlit, ngrok, GitHub Pages  
-- 📁 **Version Control**: Git & GitHub
+- **Languages**: Python, R, SQL, HTML/CSS, JavaScript
+- **Tools**: Power BI, Tableau, Excel  
+- **Libraries**: pandas, NumPy, scikit-learn, XGBoost, statsmodels, SHAP, Many more  
+- **ML & Analytics**: Logistic Regression, Time Series (ARIMA), Decision Trees, Clustering  
+- **Data Integration**: Power Query, API, ETL pipelines  
+- **Cloud & Deployment**: Streamlit, ngrok, GitHub Pages  
+- **Version Control**: Git & GitHub
 
 
 ## Featured Projects
