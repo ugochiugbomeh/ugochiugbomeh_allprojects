@@ -1,0 +1,34 @@
+shap_feature_names	shap_feature _values
+Total_Trans_Ct	2.809
+Total_Trans_Amt	1.597
+Total_Revolving_Bal	1.170
+Avg_Transaction_Value	0.975
+Total_Relationship_Count	0.906
+Total_Ct_Chng_Q4_Q1	0.767
+Marital_Status_Single	0.766
+Total_Amt_Chng_Q4_Q1	0.662
+Marital_Status_Married	0.634
+Customer_Age	0.441
+Education_Level_Graduate	0.424
+Months_Inactive_12_mon	0.400
+Income_Category_Less than  $40K	0.379
+Income_Category_$40K - $60K	0.343
+Income_Category_Unknown	0.304
+Credit_Limit	0.295
+Education_Level_High  School	0.267
+Education_Level_Unknown	0.261
+Contacts_Count_12_mon	0.244
+Education_Level_Uneducated	0.218
+Avg_Utilization_Ratio	0.213
+Marital_Status_Unknown	0.148
+Income_Category_$80K - $120K	0.132
+Months_on_book	0.122
+Revolving_Bal_Per_Limit	0.111
+Education_Level_Doctorate	0.108
+Education_Level_Post-Graduate	0.101
+Gender_M	0.092
+Dependent_count	0.090
+Income_Category_$60K - $80K	0.050
+Card_Category_Platinum	0.001
+Card_Category_Silver	0.001
+Card_Category_Gold	0.000

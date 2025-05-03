@@ -1,0 +1,6 @@
+Income_Category,Income_Category_ID
+$60K - $80K,1
+Less than $40K,2
+$80K - $120K,3
+$40K - $60K,4
+Unknown,5
