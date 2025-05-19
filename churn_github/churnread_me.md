@@ -6,7 +6,7 @@ This project presents a full end-to-end credit card customer churn analysis usin
 
 ## Dataset
 
-**Source**: IBM Sample Dataset (BankChurners.csv)  
+**Source**: Credit Card Dataset (BankChurners.csv)  
 **Records**: 10,000 credit card customers  
 **Churned Customers**: ~16% of total  
 Note: The dataset was pre-cleaned. Class imbalance was preserved during initial analysis and later addressed with **SMOTE** during model training.
