@@ -1,0 +1,1378 @@
+---
+title: "Merged & Cleaning"
+author: "Ugochi Ugbomeh"
+date: "2024-08-13"
+output: html_document
+---
+
+## Merged Train Dataset (Merged_train_1.xlsx) merged_1422
+This dataset contains institutional data about international PG students enrollment numbers, visa requirements, and associated costs.
+It includes various fields that describe the level of study, type of visa, fees, and details specific to different countries.
+##Variables:
+Level Of Study: Indicates the academic level (e.g., "All postgraduate").
+Mode Of Study: Specifies the mode of study (e.g., "All", "Full-time").
+Academic Year: Represents the academic year in a format like "2014/2015".
+Visa Code: The type of visa (e.g., "Tier 4 (General)").
+Visa Fee (£): The cost of the visa in GBP.
+Visa-NHS Charge (£): The additional National Health Service charge associated with the visa.
+Visa After Graduation: Information on the visa status after graduation.
+Visa Work Requirements After Graduation: Details about work requirements after graduation.
+Salary Requirements: Indicates any salary requirements related to the visa or employment.
+Country Columns (e.g., China, India, Japan, etc.): These columns represent the number of enrolled students from that country
+------------------
+##FX Rates Dataset (rates_semi_clean.csv) = rates_1422
+This dataset provides foreign exchange (FX) rates between GBP (British Pound) and various currencies for different years and months. 
+This dataset and it's variables act as a key factor in predicting international PG students enrollment numbers in scottish universities.
+#Variables:
+Year: The calendar year (e.g., 2014, 2015).
+Month: The month of the year (e.g., 1 for January, 2 for February).
+Date: The month and year in a combined format (e.g., "Dec-19").
+Libya_fx,Congo_fx,Ghana_fx....: These columns represent the exchange rate of GBP to respective foreign currencies. 
+Each column is named with the pattern (country_fx).
+-------------------
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("viridis")
+```
+
+
+```{r}
+# Load necessary packages
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(viridis)
+library(tidyverse)
+library(reshape2)
+library(readxl)
+library(RColorBrewer)
+library(dummy)
+library(corrplot)
+library(randomForest)
+```
+
+
+```{r}
+# Load the uploaded CSV file
+file_path1 = 'C:/Users/gochi/Desktop/CMM-500/Project Data/merged_train_1.csv'
+merged_1422 = read.csv(file_path1, stringsAsFactors = T)
+file_path2 = 'C:/Users/gochi/Desktop/CMM-500/Project Data/rates_semi_clean.csv'
+rates_1422 = read.csv(file_path2, stringsAsFactors = T)
+tuition_1422_long <- read.csv("C:/Users/gochi/Desktop/CMM-500/Project Data/tuition_long1422.csv" , stringsAsFactors = T)
+#adding the GDP/Inflation Dataset
+gdp_inf_1422 <- read.csv("C:/Users/gochi/Desktop/CMM-500/Project Data/gdp_inf_semi_clean.csv" , stringsAsFactors = T)
+```
+
+
+```{r}
+# Clean up columns
+rates_1422$Year <- as.factor(rates_1422$Year)
+rates_1422$Month <- as.factor(rates_1422$Month)
+rates_1422$Date <- as.factor(rates_1422$Date)
+tuition_1422_long$Fiscal_Year = as.factor(tuition_1422_long$Fiscal_Year)
+```
+
+```{r}
+str(rates_1422)
+```
+
+
+#View Summary
+```{r}
+summary(merged_1422)
+summary(rates_1422)
+summary(tuition_1422_long)
+summary(gdp_inf_1422)
+```
+
+
+
+#Reshaping Datasets
+
+```{r}
+# 1. Reshape the FX Rates dataset
+fx_long_1422 <- rates_1422 %>%
+  pivot_longer(cols = -c(Year, Month, Date),
+               names_to = "Country",
+               values_to = "FX_Rate") %>%
+  mutate(Country = gsub("_fx", "", Country))
+
+# Convert relevant columns in merged_1422 to character to avoid type conflicts
+merged_1422 <- merged_1422 %>%
+  mutate(across(where(is.factor), as.character)) %>%
+  mutate(across(where(is.integer), as.character))
+
+# 2. Reshape the Enrollment dataset
+mg_long_1422 <- merged_1422 %>%
+  pivot_longer(cols = c("China", "India", "Japan", "Pakistan", "Thailand", 
+                        "Kuwait", "Oman",  "Turkey", "Libya", 
+                        "Ghana", "Nigeria", "Kenya", "Gambia", "Tanzania", "Uganda"),
+               names_to = "Country",
+               values_to = "Enrollment")
+
+# Create a Fiscal Year column in the Enrollment dataset
+mg_long_1422 <- mg_long_1422 %>%
+  mutate(Fiscal_Year_Start = as.numeric(sub("/.*", "", Academic.Year)),
+         Fiscal_Year_End = as.numeric(sub(".*/", "", Academic.Year))) %>%
+  pivot_longer(cols = c(Fiscal_Year_Start, Fiscal_Year_End), 
+               names_to = "Type", 
+               values_to = "Fiscal_Year") %>%
+  select(-Type)
+
+# Rename columns in gdp_inf_1422 to remove the "X" prefix
+colnames(gdp_inf_1422) <- gsub("^X", "", colnames(gdp_inf_1422))
+
+# Convert relevant columns in gdp_inf_1422 to character to avoid type conflicts
+gdp_inf_1422 <- gdp_inf_1422 %>%
+  mutate(across(where(is.factor), as.character))
+
+# 4. Reshape the GDP data from wide to long format, keeping the Country column
+# Identify the columns to be reshaped (only the year columns)
+year_columns <- grep("^\\d{4}$", colnames(gdp_inf_1422), value = TRUE)
+gdp_inf_long <- gdp_inf_1422 %>%
+  pivot_longer(cols = all_of(year_columns),
+               names_to = "Year",
+               values_to = "economic_indicator") %>%
+  mutate(Year = as.numeric(Year))
+#--------
+fx_long_1422 <- fx_long_1422 %>%
+  mutate(Year = as.numeric(as.character(Year)))
+
+# 6.1 Merge Enrollment with FX Rates using left join
+merged_1422_result <- left_join(mg_long_1422, fx_long_1422,
+                                by = c("Fiscal_Year" = "Year", "Country"))
+
+merged_gdp_result <- left_join(merged_1422_result, gdp_inf_long,
+                               by = c("Fiscal_Year" = "Year", "Country"),
+                               relationship = "many-to-many")
+
+# Convert Fiscal_Year in tuition_1422_long from factor to numeric
+tuition_1422_long <- tuition_1422_long %>%
+  mutate(Fiscal_Year = as.numeric(as.character(Fiscal_Year)))
+
+# Now perform the left join with consistent data types
+final_merged_data <- left_join(merged_gdp_result, tuition_1422_long,
+                               by = c("Fiscal_Year", "HE.Provider"))
+
+
+# 8. Ensure the final dataset is unique
+final_merged_data <- final_merged_data %>%
+  distinct(Fiscal_Year, Country, .keep_all = TRUE)
+
+# View the final merged dataset
+head(final_merged_data)
+```
+##Still Reshaping ( Enrollment dataset)
+```{r}
+#Pivot to long format to create Country and Enrollment columns
+# Explicitly listing each country
+mg_long_1422 <- merged_1422 %>%
+  pivot_longer(cols = c("China", "India", "Japan", "Pakistan", "Thailand", 
+                        "Kuwait", "Oman",  "Turkey", "Libya", 
+                        "Ghana", "Nigeria", "Kenya", "Gambia", "Tanzania", "Uganda"),
+               names_to = "Country", 
+               values_to = "Enrollment")
+
+# Step 3: View the result
+head(mg_long_1422)
+
+```
+#Reshaping GDP Dataset
+```{r}
+#Reshape the GDP/Inflation dataset (pivot longer)
+gdp_inf_long_1422 <- gdp_inf_1422 %>%
+  pivot_longer(cols = starts_with("X"),  # Adjust for columns like X2014, X2015
+               names_to = "Fiscal_Year", 
+               values_to = "Value") %>%
+  mutate(Year = sub("X", "", Fiscal_Year)) %>%  # Remove the "X" from the year
+  pivot_wider(names_from = Growth.Indicator, values_from = Value)
+
+  gdp_inf_long_1422$Fiscal_Year = NULL
+  
+  gdp_inf_long_1422 <- gdp_inf_long_1422 %>%
+  rename(Fiscal_Year = Year)
+#Reshape the GDP/Inflation dataset (pivot longer)
+gdp_inf_long_1422 <- gdp_inf_1422 %>%
+  pivot_longer(cols = starts_with("X"),  # Adjust for columns like X2014, X2015
+               names_to = "Fiscal_Year", 
+               values_to = "Value") %>%
+  mutate(Fiscal_Year = sub("X", "", Fiscal_Year))  # Remove the "X" from the year
+```
+
+#Merging datasets ( round 1)
+```{r}
+
+# Create a Fiscal Year column (if not already done)
+mg_long_1422 <- mg_long_1422 %>%
+  mutate(Fiscal_Year_Start = as.numeric(sub("/.*", "", `Academic.Year`)),
+         Fiscal_Year_End = as.numeric(sub(".*/", "", `Academic.Year`))) %>%
+  tidyr::pivot_longer(cols = c(Fiscal_Year_Start, Fiscal_Year_End), 
+                      names_to = "Type", 
+                      values_to = "Fiscal_Year") %>%
+  select(-Type)  # Remove the type column as it's no longer needed
+
+# Merge with FX rates using Fiscal_Year and Country as keys
+merged_1422_result <- merge(mg_long_1422, fx_long_1422, 
+                            by.x = c("Fiscal_Year", "Country"), 
+                            by.y = c("Year", "Country"), 
+                            all.x = TRUE)
+
+# Clean up the merged dataset (only if necessary)
+merged_1422_result <- merged_1422_result %>%
+  select(-Month, -Date) %>%  # Remove unnecessary columns
+  distinct()
+```
+
+
+
+
+
+
+```{r}
+head(merged_1422_result)
+# Save or view the result
+write.csv(merged_1422_result, "C:/Users/gochi/Desktop/CMM-500/Project Data/merged_result_with_fiscal_year.csv", row.names = FALSE)
+```
+
+```{r}
+merged_1422_result$Fiscal_Year = as.factor(merged_1422_result$Fiscal_Year)
+merged_1422_result$Visa.Fee....= as.factor(merged_1422_result$Visa.Fee...)
+merged_1422_result$Visa.NHS.Charge....= as.factor(merged_1422_result$Visa.NHS.Charge....)
+merged_1422_result$Visa.Fee..Dependents = as.factor(merged_1422_result$Visa.Fee..Dependents)
+merged_1422_result$Visa.NHS.Charge.Depen = as.factor(merged_1422_result$Visa.NHS.Charge.Depen)
+summary(merged_1422_result)
+```
+
+# Summary of these results
+----------------------------------
+Dataset Structure:
+Observations: The dataset contains 108 observations with 18 variables, indicating that it’s a multi-dimensional dataset involving various factors like time, country, and financial data.
+
+FX Rates by Country: The dataset includes monthly foreign exchange rates for various countries over a span of several years (from 2014 onwards).
+Key Variables:
+Date Variables:
+
+Year and Month: These indicate the temporal dimension of the data, showing that FX rates are tracked monthly.
+Date: Combines year and month, likely serving as a unique identifier for each time period in the dataset.
+Foreign Exchange Rates:Variables like Libya_fx, Ghana_fx, Nigeria_fx, etc., represent the exchange rates between GBP and the respective countries' currencies.
+The mean, min, and max values indicate fluctuations in exchange rates across the observed period. For example, the exchange rate for Nigeria (Nigeria_fx) shows a mean of approximately 406.6, with a maximum of 583.3, reflecting significant variability.
+
+Visa Information:
+Visa Code: Includes various types of visas such as Tier 4 (General) and Tier 4 + Graduate Route, indicating the visa requirements for international students.
+Visa Fee and NHS Charge: Financial details associated with visa applications, with fees ranging from £310 to £348 and NHS charges between £150 and £470.
+Visa After Graduation and Work Requirements: Indicates whether students can remain and work in the UK after graduation, with categories like Tier 2 Only or Graduate Route for 2 years.
+
+Student Enrollment Data:
+Enrollment: Captures the number of enrolled students, with significant variability across different countries and institutions. For instance, the mean enrollment for China is 334, with a maximum of 8130.
+HE Provider: Lists different higher education institutions such as Abertay University, Edinburgh Napier University, etc., each with associated enrollment numbers.
+
+Descriptive Statistics:
+Enrollment:
+The dataset shows high variability in student enrollment across different countries and universities. Some countries have minimal enrollment (e.g., Gambia with a minimum of 0 and a mean of 0.2019), while others, like China and India, show significant enrollment figures.
+
+FX Rates:
+FX rates vary widely across countries. For example, the exchange rate for Uganda (Uganda_fx) ranges from a minimum of 4055 to a maximum of 5612, suggesting substantial fluctuation.
+Visa-Related Variables:
+
+The mean visa fee and NHS charges align with typical ranges, and the dataset indicates that the majority of students are subject to NHS charges of £150.
+
+Insights:
+Fluctuation in FX Rates: The wide range of FX rates indicates potential volatility in currency exchange, which could influence the affordability of studying in the UK for international students.
+
+Visa Complexity: The dataset reflects the complexity of visa requirements and the associated costs, which might impact international students’ decisions to study in the UK.
+
+Institutional Enrollment Patterns: There’s considerable diversity in enrollment numbers across institutions, which might correlate with the reputation, cost, or availability of scholarships at these universities.
+
+----------------------------------------
+#Merge 2 ( Combine the merged dataset with GDP and Inflation Rates)
+```{r}
+#adding the GDP/Inflation Dataset
+gdp_inf_1422 <- read.csv("C:/Users/gochi/Desktop/CMM-500/Project Data/gdp_inf_semi_clean.csv" , stringsAsFactors = T)
+
+#Reshape the GDP/Inflation dataset (pivot longer)
+gdp_inf_long_1422 <- gdp_inf_1422 %>%
+  pivot_longer(cols = starts_with("X"),  # Adjust for columns like X2014, X2015
+               names_to = "Fiscal_Year", 
+               values_to = "Value") %>%
+  mutate(Year = sub("X", "", Fiscal_Year)) %>%  # Remove the "X" from the year
+  pivot_wider(names_from = Growth.Indicator, values_from = Value)
+
+  gdp_inf_long_1422$Fiscal_Year = NULL
+  
+  gdp_inf_long_1422 <- gdp_inf_long_1422 %>%
+  rename(Fiscal_Year = Year)
+#Reshape the GDP/Inflation dataset (pivot longer)
+gdp_inf_long_1422 <- gdp_inf_1422 %>%
+  pivot_longer(cols = starts_with("X"),  # Adjust for columns like X2014, X2015
+               names_to = "Fiscal_Year", 
+               values_to = "Value") %>%
+  mutate(Fiscal_Year = sub("X", "", Fiscal_Year))  # Remove the "X" from the year
+
+
+head(gdp_inf_long_1422)
+```
+
+
+```{r}
+summary(gdp_inf_long_1422)
+```
+
+
+```{r}
+gdp_inf_long_1422$Fiscal_Year= as.factor(gdp_inf_long_1422$Fiscal_Year)
+merged_1422_result$Fiscal_Year = as.factor(merged_1422_result$Fiscal_Year)
+# Merge the datasets on Country and Year
+merged_final_1422 <- merged_1422_result %>%
+  left_join(gdp_inf_long_1422, by = c("Country", "Fiscal_Year"))
+
+summary(merged_final_1422)
+```
+
+
+#Investigating Duplicates
+```{r}
+# Step 1: Check for duplicates in the enrollment dataset
+enrollment_duplicates <- merged_1422_result %>%
+  group_by(Country, Fiscal_Year) %>%
+  filter(n() > 1)
+
+# View duplicates in the enrollment dataset
+print(enrollment_duplicates)
+
+# Step 2: Check for duplicates in the GDP/Inflation dataset
+gdp_inflation_duplicates <- gdp_inf_long_1422 %>%
+  group_by(Country,Fiscal_Year) %>%
+  filter(n() > 1)
+
+# View duplicates in the GDP/Inflation dataset
+print(gdp_inflation_duplicates)
+```
+
+
+
+```{r}
+# Aggregate the enrollment dataset without removing the Growth_Indicator column
+aggregated_enrollment <- merged_1422_result %>%
+  group_by(Country, Fiscal_Year, HE.Provider,FX_Rate) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE),
+            across(where(is.factor), ~ first(.x, order_by = NULL)),
+            across(where(is.character), ~ first(.x, order_by = NULL)),
+            .groups = 'drop')
+
+# Aggregate the GDP/Inflation dataset
+aggregated_gdp_inflation <- gdp_inf_long_1422 %>%
+  group_by(Country, Fiscal_Year, Growth.Indicator) %>%  # Include Growth_Indicator in the grouping
+  summarise(across(where(is.numeric), mean, na.rm = TRUE),
+            .groups = 'drop')
+
+# Merge the aggregated datasets
+final_merged_data <- aggregated_enrollment %>%
+  left_join(aggregated_gdp_inflation, by = c("Country", "Fiscal_Year"))
+
+# View the merged result
+head(final_merged_data)
+
+```
+```{r}
+summary(final_merged_data)
+# Aggregate FX_Rate by Country and Fiscal_Year
+aggregated_data <- final_merged_data %>%
+  group_by(Country, Fiscal_Year) %>%
+  summarise(
+    HE.Provider = first(HE.Provider),  # Keep the first occurrence of HE.Provider (assuming it's the same across grouped data)
+    Enrollment = sum(Enrollment, na.rm = TRUE),  # Sum enrollment as it's likely relevant across institutions
+    FX_Rate = mean(FX_Rate, na.rm = TRUE),  # Take the mean of FX_Rate
+    Level.Of.Study = first(Level.Of.Study),  # Assuming Level.Of.Study is the same across grouped data
+    Mode.Of.Study = first(Mode.Of..Study),  # Same assumption as above
+    Academic.Year = first(Academic.Year),  # Keep the first occurrence of Academic.Year
+    Visa.Code = first(Visa.Code),  # Keep the first occurrence of Visa.Code
+    Visa.Fee.... = first(Visa.Fee....),  # Keep the first occurrence of Visa.Fee....
+    Visa.NHS.Charge.... = first(Visa.NHS.Charge....),  # Keep the first occurrence of Visa.NHS.Charge....
+    Visa.After.Graduation = first(Visa.After.Graduation),  # Keep the first occurrence
+    Visa.Work.Requirements.After.Graduation = first(Visa.Work.Requirements.After.Graduation),  # Keep the first occurrence
+    Salary.Requirements = first(Salary.Requirements),  # Keep the first occurrence
+    Dependents.Allowed = first(Dependents.Allowed),  # Keep the first occurrence
+    Visa.Fee..Dependents = first(Visa.Fee..Dependents),  # Keep the first occurrence
+    Visa.NHS.Charge.Depend = first(Visa.NHS.Charge.Depen),  # Keep the first occurrence
+    HE.Provider.Term.1 = first(HE.Provider.Term.1),  # Keep the first occurrence
+    HE.Provider.Term.2 = first(HE.Provider.Term.2),  # Keep the first occurrence
+    Growth.Indicator = first(Growth.Indicator),  # Keep the first occurrence
+    Value = first(Value)  # Keep the first occurrence
+  ) %>%
+  ungroup()
+
+# View the aggregated data
+head(aggregated_data)
+
+
+#Save or view the result
+#write.csv(final_merged_data, "C:/Users/gochi/Desktop/CMM-500/Project Data/final_merged_data.csv", row.names = FALSE)
+```
+Summary of results for final_merged_data (dataset)
+-------------------
+Dataset Structure:
+Observations: The dataset consists of 4,770 observations with multiple variables, including Country, Fiscal_Year, HE.Provider, FX_Rate, Enrollment, and others.
+Time Span: The data spans multiple fiscal years, from 2014 to at least 2021/2022.
+Key Variables:
+Fiscal Year and Academic Year:
+
+The data is categorized by fiscal years (e.g., 2014, 2015) and academic years (e.g., 2021/2022).
+Each fiscal year contains 540 observations, indicating a well-distributed dataset over time.
+Higher Education Providers (HE Providers):
+
+The dataset includes several HE providers, with significant representation from institutions like Abertay University, Edinburgh Napier University, Glasgow Caledonian University, etc.
+The category labeled "Other" includes a large number of observations (3,150), suggesting that many other institutions are also part of this dataset, though individually they might have fewer observations.
+Foreign Exchange Rate (FX Rate):
+
+The FX rates (FX_Rate) show a wide range of values:
+Min: 0.379
+1st Quartile: 5.899
+Median: 64.872
+Mean: 584.941
+3rd Quartile: 161.678
+Max: 4971.356
+This broad range indicates significant variability in currency exchange rates, which could impact the cost of studying for international students depending on their home country's currency.
+Enrollment:
+
+Enrollment numbers vary widely across the dataset:
+Min: 0.0 (indicating no students enrolled in some cases)
+Median: 10.0
+Mean: 193.5
+Max: 26,800 (indicating very high enrollment in certain cases)
+The high variability suggests that some institutions or countries see significantly higher enrollment than others, which could be due to factors like institutional reputation, scholarship availability, or the attractiveness of certain programs.
+Mode of Study:
+
+All: 1,910 observations
+Full-time: 1,674 observations
+Part-time: 1,186 observations
+This distribution shows a balanced mix of study modes, though "All" might indicate aggregated data where the mode of study is not specified.
+Visa Information:
+
+Visa Code: Includes categories like Student Visa, Tier 4 (General), Tier 4 + Graduate Route, and Tier 4 Pilot.
+Visa Fee: The fees vary, with quartiles indicating common fee levels:
+310: Common for 682 observations
+322, 328: Cover 1,672 observations combined
+348: The most frequent fee, covering 2,416 observations
+Visa NHS Charge: NHS charges range from 150 to 470, reflecting the different healthcare contributions required from students.
+
+Work and Salary Requirements:
+Visa Work Requirements After Graduation: Many students are either company-dependent (1,628 observations) or eligible for the Graduate Route for 2 years (1,844 observations).
+Salary Requirements: The standard salary requirement listed is £20,800 for many students (1,628 observations).
+Economic Indicators (Growth Indicator):
+
+The dataset includes economic indicators like GDP growth and inflation rates, split evenly across the dataset (2,385 observations each).
+Growth Indicator Values:
+Min: -58.318 (indicating significant economic contraction)
+Max: 153.493 (indicating high inflation or GDP growth)
+The wide range of values could reflect different economic environments in the countries represented in the dataset, which might affect the attractiveness of studying in the UK.
+
+##Add tuition Fees Data
+```{r}
+#Load the dataset
+tuition_1422_cleaned <- read.csv("C:/Users/gochi/Desktop/CMM-500/Project Data/tuition_long1422.csv" , stringsAsFactors = T)
+tuition_1422_cleaned$Fiscal_Year = as.factor(tuition_1422_cleaned$Fiscal_Year)
+
+# Check for inconsistent HE.Provider names
+unique_final <- unique(final_merged_data$HE.Provider)
+unique_tuition <- unique(tuition_1422_cleaned$HE.Provider)
+
+# Find mismatches
+mismatched_providers <- setdiff(unique_final, unique_tuition)
+print(mismatched_providers)
+
+# Select the most frequent tuition fee category for each combination
+tuition_1422_cleaned <- tuition_1422_cleaned %>%
+  group_by(HE.Provider, Fiscal_Year) %>%
+  summarise(Tuition_Fees = names(sort(table(Tuition_Fees), decreasing = TRUE)[1]), .groups = 'drop')
+
+# Merge the datasets using the cleaned tuition fees data
+final_merged_data_tuition <- dplyr::left_join(final_merged_data, tuition_1422_cleaned, 
+                                              by = c("HE.Provider", "Fiscal_Year"))
+                                              relationship ="many-to-many"
+
+# Check for any NA values in the Tuition_Fees column after merging
+na_rows <- final_merged_data_tuition[is.na(final_merged_data_tuition$Tuition_Fees), ]
+summary(na_rows)
+
+
+#change HE provider to Factor
+final_merged_data_tuition$HE.Provider = as.factor(final_merged_data_tuition$HE.Provider)
+
+```
+
+
+```{r}
+final_merged_data_tuition$Tuition_Fees = as.factor(final_merged_data_tuition$Tuition_Fees)
+final_merged_data_tuition$Country = as.factor(final_merged_data_tuition$Country)
+summary(final_merged_data_tuition)
+```
+```{r}
+# rename dataset
+final_combined_1422 <- final_merged_data_tuition
+```
+
+```{r}
+#the merged result to check for NAs
+summary(final_combined_1422)
+```
+Summary
+--------
+Dataset Structure:
+Observations: The dataset contains 5040 observations across 18 variables, which seems to be well-structured with no apparent missing data in the key variables.
+
+we just added a range of tuition fees variable to the already existing dataset by a merge ( inner join)
+Range:
+Categories such as "11000 - 18000", "12000 - 20000", "15000 - 22000" suggest that tuition fees are grouped into ranges, indicating different fee structures for various programs or institutions.
+Distribution:
+The "Other" category dominates with 4050 observations, suggesting a wide variety of fee structures across different HE providers.
+
+
+```{r}
+final_combined_1422$Country= as.factor(final_combined_1422$Country)
+final_combined_1422$HE.Provider= as.factor(final_combined_1422$HE.Provider)
+final_combined_1422$Growth.Indicator= as.factor(final_combined_1422$Growth.Indicator)
+#Save or view the result
+write.csv(final_combined_1422, "C:/Users/gochi/Desktop/CMM-500/Project Data/final_combined_1422.csv", row.names = FALSE)
+```
+
+
+
+```{r}
+final_combined_1422 = read.csv("C:/Users/gochi/Desktop/CMM-500/Project Data/final_combined_1422.csv", stringsAsFactors = T)
+
+final_combined_1422$HE.Provider = as.factor (final_combined_1422$HE.Provider)
+final_combined_1422$Fiscal_Year = as.factor(final_combined_1422$Fiscal_Year)
+final_combined_1422$Visa.Fee....= as.factor(final_combined_1422$Visa.Fee....)
+final_combined_1422$Visa.NHS.Charge....= as.factor(final_combined_1422$Visa.NHS.Charge....)
+final_combined_1422$Visa.NHS.Charge.Depen = as.factor(final_combined_1422$Visa.NHS.Charge.Depen)
+final_combined_1422$Visa.Fee..Dependents= as.factor(final_combined_1422$Visa.Fee..Dependents)
+# Extract the numeric values from the ranges in Tuition_Fees
+convert_tuition_to_numeric <- function(factor_col) {
+  # Split the ranges into two parts
+  ranges <- strsplit(as.character(factor_col), "-")
+  
+  # Convert the split strings to numeric and calculate the midpoints
+  midpoints <- sapply(ranges, function(x) {
+    lower <- as.numeric(x[1])
+    upper <- as.numeric(x[2])
+    return((lower + upper) / 2)
+  })
+  
+  return(midpoints)
+}
+
+# Apply the function to the Tuition_Fees column
+final_combined_1422$Tuition_Fees <- convert_tuition_to_numeric(final_combined_1422$Tuition_Fees)
+
+# Check the result
+head(final_combined_1422$Tuition_Fees)
+```
+```{r}
+
+
+#List unique HE.Provider names to manually check for inconsistencies
+#unique(final_combined_1422$HE.Provider)
+
+# Remove the "All" category from Mode.Of..Study and drop the level
+final_combined_1422 <- final_combined_1422 %>%
+  filter(Mode.Of..Study != "All") %>%  # Filter out the "All" category
+  droplevels()  # Drop unused levels from all factor columns
+
+
+
+summary(final_combined_1422)
+```
+
+
+
+
+
+```{r}
+#Drop Level of Study
+final_combined_1422$Level.Of.Study =  NULL
+#unique(final_combined_1422$HE.Provider)
+```
+
+
+
+#EDA exploratory Data Analysis
+--------------------------------------------------
+Visaulising Numerical Variables
+1. Enrolment
+2. GDP Values
+3. Inflation Values
+3. Fx- rates
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4}
+ggplot(data = final_combined_1422, aes(x = Enrollment)) + geom_histogram(bins = 8) #enrolment numbers
+ggplot(data = final_combined_1422, aes(x = Enrollment)) + geom_density(col = 'blue', lwd = 0.5) #enrolment numbers
+ggplot(data = final_combined_1422, aes(x = FX_Rate)) + geom_density(col = 'red', lwd = 0.5) #fx_rate
+ggplot(data = final_combined_1422, aes(x = Value)) + geom_density(col = 'blue', lwd = 0.5)
+ggplot(data = final_combined_1422, aes(x = Value)) + geom_density(col = 'blue', lwd = 0.5) + facet_wrap(~ Growth.Indicator)# see both GDP and Inflation + Negative distribution
+ggplot(data = final_combined_1422, aes(x = "", y = Value)) + geom_violin() # to see the negative values
+ggplot(data = final_combined_1422, aes(x = Growth.Indicator, y = Value, fill = Growth.Indicator)) + geom_bar(stat = "identity") + labs(x = "Growth Indicator Rate", y = "Value %")
+```
+
+Distribution of Categorical Variables
+---------------------------
+Mode of Study 
+Visa Code
+HE Provider 
+Growth Indicator
+Country
+
+```{r,=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=8}
+ggplot(final_combined_1422, aes(x = Visa.Code , fill= Visa.Code)) + geom_bar() + labs (" Visa Codes Class Distribution")
+ggplot(final_combined_1422, aes(x = Mode.Of..Study , fill= Mode.Of..Study)) + geom_bar() + labs("Modes of Study Class Distribution")
+ggplot(final_combined_1422, aes(x = HE.Provider,y = "")) + geom_bar( stat = "identity") + coord_flip() + labs(title = "HE Provider Distribution")
+ggplot(final_combined_1422, aes(x = Growth.Indicator,fill = Growth.Indicator)) + geom_bar() + labs ( title = "Class Distribution of Growth Indicators")
+ggplot(final_combined_1422, aes(x = Country)) + geom_bar()
+```
+```{r}
+
+```
+
+
+
+
+
+Distribution in Pairs
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+custom_palette <- colorRampPalette(brewer.pal(12, "Set3"))(18)
+ggplot(data = final_combined_1422, aes(x = Country, y = FX_Rate, fill = Country)) + geom_bar(stat = "identity") + labs(x = "Country", y = "FX Rate Value")
+ggplot(data = final_combined_1422, aes(x = Country, y = Value, fill = Country)) + geom_bar(stat = "identity") + labs(x = "Country", y = "Growth Indicator Rate")
+#ggplot(data = final_combined_1422, aes(x = Enrollment, y = Country, fill = HE.Provider)) + geom_bar(stat = "identity") + labs(x = "Enrolment numbers", y = "Country of Origin") + scale_fill_manual(values = custom_palette)
+ggplot(final_combined_1422, aes(x = Enrollment, fill = Country)) + 
+  geom_bar(width = 0.8) +  # Adjust bar width
+  facet_wrap(~ Country, scales = "free", ncol = 3) +  # Increase number of columns in facet wrap
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(title = "Student Enrollment by Country", x = "Enrollment", y = "Count")
+
+```
+##Treating outliers
+------------
+
+```{r}
+# Identify numeric and integer columns
+numeric_columns <- sapply(final_combined_1422, is.numeric)
+int_columns <- sapply(final_combined_1422, is.integer)
+
+# Combine both into one logical vector
+num_int_columns <- numeric_columns | int_columns
+
+# Extract just the numeric and integer columns
+numeric_data <- final_combined_1422[, num_int_columns]
+
+summary(numeric_data)
+#----
+```
+```{r}
+# Reshape data for plotting
+numeric_data_melted <- melt(numeric_data)
+
+# Create boxplots
+ggplot(numeric_data_melted, aes(x = variable, y = value)) + 
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  scale_y_continuous(trans='log10') +  # Apply log scale on y-axis
+  labs(title = "Boxplots to Identify Outliers", x = "Variable", y = "Log(Value + 1)")
+```
+Still on outliers
+```{r}
+# Function to detect outliers
+detect_outliers <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  lower_bound <- q1 - 1.5 * iqr
+  upper_bound <- q3 + 1.5 * iqr
+  x[x < lower_bound | x > upper_bound]
+}
+
+# Apply the function to each numeric/int column
+outliers <- lapply(numeric_data, detect_outliers)
+
+# View outliers
+outliers
+summary(outliers)
+```
+
+## 1. Enrollment Outliers
+Min (155): The smallest outlier value in enrollment is 155.
+1st Quartile (245): 25% of the outliers are below 245.
+Median (415): The median (middle value) of the outliers is 415, indicating that half of the outliers are below this value.
+Mean (1236): The average of the outliers is 1236, which is higher than the median, indicating a skew towards larger outliers.
+3rd Quartile (1010): 75% of the outliers are below 1010.
+Max (26800): The largest outlier is extremely high at 26,800, showing a significant disparity in enrollment outliers.
+
+##2. FX_Rate Outliers
+Min (400.6): The smallest outlier value in FX_Rate is 400.6.
+1st Quartile (2738.8): 25% of the outliers are below 2738.8.
+Median (3024.4): The median value of the outliers is 3024.4, meaning half of the outliers are below this rate.
+Mean (3121.7): The average FX_Rate outlier is 3121.7, slightly higher than the median, indicating a slight skew towards larger FX_Rate outliers.
+3rd Quartile (4698.3): 75% of the outliers are below 4698.3.
+Max (4971.4): The highest FX_Rate outlier is 4971.4, indicating a substantial range in outlier values.
+
+##3. Value Outliers
+Min (-58.318): The smallest outlier value in the "Value" variable is -58.318, indicating a significant negative outlier.
+1st Quartile (-9.136): 25% of the outliers are below -9.136.
+Median (16.231): The median value of the outliers is 16.231, with half of the outliers below this value.
+Mean (16.993): The average of the outliers is slightly higher than the median, indicating that positive outliers are influencing the mean.
+3rd Quartile (27.725): 75% of the outliers are below 27.725.
+Max (153.493): The largest outlier is 153.493, indicating a wide range of outliers, including significant positive outliers.
+```{r}
+summary(outliers$Enrollment)
+summary(outliers$FX_Rate)
+summary(outliers$Value)
+summary(outliers$Tuition_Fees)
+```
+## Dealing with outliers- Percentile Based Clipping
+```{r}
+# Define a function for percentile-based clipping
+clip_outliers <- function(x, lower_percentile = 0.05, upper_percentile = 0.95) {
+  lower_bound <- quantile(x, lower_percentile, na.rm = TRUE)
+  upper_bound <- quantile(x, upper_percentile, na.rm = TRUE)
+  
+  x[x < lower_bound] <- lower_bound
+  x[x > upper_bound] <- upper_bound
+  
+  return(x)
+}
+
+# Apply the clipping function to FX_Rate, Value, and Enrollment
+final_combined_1422_clipped <- final_combined_1422
+final_combined_1422_clipped$FX_Rate <- clip_outliers(final_combined_1422$FX_Rate)
+final_combined_1422_clipped$Value <- clip_outliers(final_combined_1422$Value)
+final_combined_1422_clipped$Enrollment <- clip_outliers(final_combined_1422$Enrollment)
+final_combined_1422_clipped$Tuition_Fees <- clip_outliers(final_combined_1422$Tuition_Fees)
+
+# Check the summary of the clipped variables
+summary(final_combined_1422_clipped$FX_Rate)
+summary(final_combined_1422_clipped$Value)
+summary(final_combined_1422_clipped$Enrollment)
+summary(final_combined_1422_clipped$Tuition_Fees)
+```
+
+```{r}
+final_combined_1422_clipped$Visa.Fee....= as.numeric(final_combined_1422_clipped$Visa.Fee....)
+final_combined_1422_clipped$Visa.Fee..Dependents = as.numeric(final_combined_1422_clipped$Visa.Fee..Dependents)
+final_combined_1422_clipped$Visa.NHS.Charge....= as.numeric(final_combined_1422_clipped$Visa.NHS.Charge....)
+final_combined_1422_clipped$Visa.NHS.Charge.Depen = as.numeric(final_combined_1422_clipped$Visa.NHS.Charge.Depen)
+summary(final_combined_1422_clipped)
+```
+
+2. Compare with Original Data:
+Compare the summary statistics of the clipped variables with the original variables to see how the clipping has affected the distribution.
+
+```{r}
+# Compare summaries before and after clipping
+summary(final_combined_1422$FX_Rate)
+summary(final_combined_1422$Value)
+summary(final_combined_1422$Enrollment)
+summary(final_combined_1422$Tuition_Fees)
+
+#-----------------------
+
+# Compare with clipped summaries
+summary(final_combined_1422_clipped$FX_Rate)
+summary(final_combined_1422_clipped$Value)
+summary(final_combined_1422_clipped$Enrollment)
+summary(final_combined_1422_clipped$Tuition_Fees)
+```
+#Visualise orginal data vs outliers treated data with histogram, box-plot and density plot
+
+```{r}
+##Historgram
+# Visualize the original and clipped FX_Rate
+ggplot() +
+  geom_histogram(aes(x = final_combined_1422$FX_Rate), fill = 'blue', alpha = 0.5, binwidth = 50) +
+  geom_histogram(aes(x = final_combined_1422_clipped$FX_Rate), fill = 'red', alpha = 0.5, binwidth = 50) +
+  labs(title = "FX_Rate: Original (blue) vs Clipped (red)", x = "FX_Rate", y = "Frequency")
+
+# Visualize the original and clipped Value
+ggplot() +
+  geom_histogram(aes(x = final_combined_1422$Value), fill = 'blue', alpha = 0.5, binwidth = 10) +
+  geom_histogram(aes(x = final_combined_1422_clipped$Value), fill = 'red', alpha = 0.5, binwidth = 10) +
+  labs(title = "Value: Original (blue) vs Clipped (red)", x = "Value", y = "Frequency")
+
+# Visualize the original and clipped Enrollment
+ggplot() +
+  geom_histogram(aes(x = final_combined_1422$Enrollment), fill = 'blue', alpha = 0.5, binwidth = 100) +
+  geom_histogram(aes(x = final_combined_1422_clipped$Enrollment), fill = 'red', alpha = 0.5, binwidth = 100) +
+  labs(title = "Enrollment: Original (blue) vs Clipped (red)", x = "Enrollment", y = "Frequency")
+
+# Visualize the original and clipped Tuition Fees
+ggplot() +
+  geom_histogram(aes(x = final_combined_1422$Tuition_Fees), fill = 'blue', alpha = 0.5, binwidth = 100) +
+  geom_histogram(aes(x = final_combined_1422_clipped$Tuition_Fees), fill = 'red', alpha = 0.5, binwidth = 100) +
+  labs(title = "Tuition: Original (blue) vs Clipped (red)", x = "Tuition Fees", y = "Frequency")
+```
+
+```{r}
+# Boxplot comparison for FX_Rate with Log Scale
+ggplot(final_combined_1422, aes(y = log(FX_Rate + 1))) + 
+  geom_boxplot(fill = "blue", alpha = 0.5) +
+  geom_boxplot(data = final_combined_1422_clipped, aes(y = log(FX_Rate + 1)), fill = "red", alpha = 0.5) +
+  labs(title = "FX_Rate: Original (blue) vs Clipped (red) [Log Scale]", y = "Log(FX_Rate + 1)")
+
+# Boxplot comparison for Enrollment with Log Scale
+ggplot(final_combined_1422, aes(y = log(Enrollment + 1))) + 
+  geom_boxplot(fill = "blue", alpha = 0.5) +
+  geom_boxplot(data = final_combined_1422_clipped, aes(y = log(Enrollment + 1)), fill = "red", alpha = 0.5) +
+  labs(title = "Enrollment: Original (blue) vs Clipped (red) [Log Scale]", y = "Log(Enrollment + 1)")
+
+# Boxplot comparison for Tuition Fees
+ggplot(final_combined_1422, aes(y = Tuition_Fees)) + 
+  geom_boxplot(fill = "blue", alpha = 0.5) +
+  geom_boxplot(data = final_combined_1422_clipped, aes(y = Tuition_Fees), fill = "red", alpha = 0.5) +
+  labs(title = "Tuition: Original (blue) vs Clipped (red)", y = "Tuition")
+```
+
+```{r}
+# Density plot comparison for FX_Rate
+ggplot() +
+  geom_density(aes(x = log(final_combined_1422$FX_Rate + 1)), color = 'blue', fill = 'blue', alpha = 0.3) +
+  geom_density(aes(x = log(final_combined_1422_clipped$FX_Rate + 1)), color = 'red', fill = 'red', alpha = 0.3) +
+  labs(title = "FX_Rate: Original (blue) vs Clipped (red) [Log Scale]", x = "Log(FX_Rate + 1)", y = "Density")
+
+# Density plot comparison for Value
+ggplot() +
+  geom_density(aes(x = final_combined_1422$Value), color = 'blue', fill = 'blue', alpha = 0.3) +
+  geom_density(aes(x = final_combined_1422_clipped$Value), color = 'red', fill = 'red', alpha = 0.3) +
+  labs(title = "Value: Original (blue) vs Clipped (red)", x = "Value", y = "Density")
+
+
+ggplot() +
+  geom_density(aes(x = log(final_combined_1422$Enrollment + 1)), color = 'blue', fill = 'blue', alpha = 0.3) +
+  geom_density(aes(x = log(final_combined_1422_clipped$Enrollment + 1)), color = 'red', fill = 'red', alpha = 0.3) +
+  labs(title = "Enrollment: Original (blue) vs Clipped (red) [Log Scale]", x = "Log(Enrollment + 1)", y = "Density")
+
+# Density plot comparison for Tuition Fees
+ggplot() +
+  geom_density(aes(x = final_combined_1422$Tuition_Fees), color = 'blue', fill = 'blue', alpha = 0.3) +
+  geom_density(aes(x = final_combined_1422_clipped$Tuition_Fees), color = 'red', fill = 'red', alpha = 0.3) +
+  labs(title = "Tuition: Original (blue) vs Clipped (red)", x = "Tuition", y = "Density")
+```
+#'Scatter Plotts to Visualise outliers
+```{r}
+#store original and clipped outliers in the a dataframe
+comparison_data <- data.frame(
+  Original_FX_Rate = final_combined_1422$FX_Rate,
+  Clipped_FX_Rate = final_combined_1422_clipped$FX_Rate,
+  Original_Value = final_combined_1422$Value,
+  Clipped_Value = final_combined_1422_clipped$Value,
+  Original_Enrollment = final_combined_1422$Enrollment,
+  Clipped_Enrollment = final_combined_1422_clipped$Enrollment,
+  Original_Tuition_Fees = final_combined_1422$Tuition_Fees,
+  Clipped_Tuition_Fees = final_combined_1422_clipped$Tuition_Fees
+)
+# create scatter plot
+# FX Rate
+ggplot(comparison_data, aes(x = Original_FX_Rate, y = Clipped_FX_Rate)) +
+  geom_point(color = "blue", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "FX Rate: Original vs Clipped", x = "Original FX Rate", y = "Clipped FX Rate")
+
+# Value
+ggplot(comparison_data, aes(x = Original_Value, y = Clipped_Value)) +
+  geom_point(color = "green", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Value: Original vs Clipped", x = "Original Value", y = "Clipped Value")
+
+# Enrollment
+ggplot(comparison_data, aes(x = Original_Enrollment, y = Clipped_Enrollment)) +
+  geom_point(color = "purple", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Enrollment: Original vs Clipped", x = "Original Enrollment", y = "Clipped Enrollment")
+
+# Tuition Fees
+ggplot(comparison_data, aes(x = Original_Tuition_Fees, y = Clipped_Tuition_Fees)) +
+  geom_point(color = "orange", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Tuition Fees: Original vs Clipped", x = "Original Tuition Fees", y = "Clipped Tuition Fees")
+
+```
+
+
+
+
+
+##Enrollment Trends by Country of Origin (Time Series Plot)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
+
+# 1. Plot time series of enrollment by country of origin
+custom_palette <- colorRampPalette(brewer.pal(12, "Set3"))(18)
+ggplot(final_combined_1422_clipped, aes(x = Fiscal_Year, y = Enrollment, color = Country, group = Country)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Enrollment Trends by Country of Origin",
+       x = "Fiscal Year",
+       y = "Enrollment",
+       color = "Country") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#-------------------------------------
+ggplot(final_combined_1422, aes(x = Fiscal_Year, y = Enrollment, color = Country, group = Country)) +
+  geom_line(linewidth = 1.2) +
+  facet_wrap(~ Country, scales = "free_y") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Enrollment Trends by Country of Origin",
+       x = "Fiscal Year",
+       y = "Enrollment") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+#----------------------------------------
+ggplot(final_combined_1422, aes(x = Fiscal_Year, y = Enrollment, color = Country, group = Country)) +
+  geom_line(linewidth = 1.5) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Enrollment Trends by Country of Origin",
+       x = "Fiscal Year",
+       y = "Enrollment",
+       color = "Country") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#--------------------------------------------
+ggplot(final_combined_1422, aes(x = Fiscal_Year, y = Enrollment, color = Country, group = Country, linetype = Country)) +
+  geom_line(linewidth = 1.2) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Enrollment Trends by Country of Origin",
+       x = "Fiscal Year",
+       y = "Enrollment",
+       color = "Country",
+       linetype = "Country") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+## Summary Statistics for Enrollment Across Different Countries and Programs
+```{r}
+# Calculate summary statistics by Country and Mode of Study
+enrollment_summary <- final_combined_1422_clipped %>%
+  group_by(Country, Mode.Of..Study) %>%
+  summarise(
+    Mean_Enrollment = mean(Enrollment, na.rm = TRUE),
+    Median_Enrollment = median(Enrollment, na.rm = TRUE),
+    SD_Enrollment = sd(Enrollment, na.rm = TRUE),
+    Min_Enrollment = min(Enrollment, na.rm = TRUE),
+    Max_Enrollment = max(Enrollment, na.rm = TRUE),
+    Total_Enrollment = sum(Enrollment, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Total_Enrollment))
+
+# View the summary statistics
+enrollment_summary
+View(enrollment_summary)
+```
+
+
+```{r}
+
+## Summary Statistics for Enrollment Across Different Countries and Universities
+# Calculate summary statistics by Country and HE Provider
+enrollmentHE_summary <- final_combined_1422_clipped %>%
+  group_by(Country, HE.Provider) %>%
+  summarise(
+    Mean_Enrollment = mean(Enrollment, na.rm = TRUE),
+    Median_Enrollment = median(Enrollment, na.rm = TRUE),
+    SD_Enrollment = sd(Enrollment, na.rm = TRUE),
+    Min_Enrollment = min(Enrollment, na.rm = TRUE),
+    Max_Enrollment = max(Enrollment, na.rm = TRUE),
+    Total_Enrollment = sum(Enrollment, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Total_Enrollment))
+
+# View the summary statistics
+enrollmentHE_summary
+#View(enrollmentHE_summary)
+```
+
+Scatter Plots to see if there is relationship between numerical variables
+```{r}
+# The plot can be enhanced by color-coding the points based on values of a 3rd variable:
+ggplot(data = final_combined_1422_clipped, aes(x = FX_Rate, y = Enrollment, fill="")) + geom_point()
+```
+This scatter plot visualizes the relationship between the foreign exchange rate (FX_Rate) and student enrollment. Here's what we can observe:
+
+Clustering at Low FX Rates:
+
+A significant number of enrollment points are clustered around low FX_Rate values (close to 0). This suggests that most of the data points have low exchange rates, and within this range, there is variability in enrollment.
+There is a dense cluster of points with enrollments ranging from 0 to 800 at low FX_Rate values.
+Sparse Data at Higher FX Rates:
+
+As the FX_Rate increases, the number of data points decreases, and the enrollment values seem to taper off. There are some enrollments at higher FX rates (above 3000), but these are sparse and tend to have lower enrollment numbers.
+Lack of Strong Linear Relationship:
+
+The plot does not show a strong linear or clear relationship between FX_Rate and enrollment. The data is widely dispersed, and the points do not form a distinct trend line, suggesting that other factors may be influencing enrollment.
+
+
+
+```{r}
+#adding other numerical variables
+ggplot(data = final_combined_1422_clipped, aes(x = FX_Rate, y = Enrollment, color = Tuition_Fees)) + 
+  geom_point() +
+  scale_color_gradient(low = "blue", high = "red") +  # Color scale from blue to red based on Tuition Fees
+  labs(title = "Enrollment vs FX_Rate with Tuition Fees",
+       x = "FX_Rate",
+       y = "Enrollment") +
+  theme_minimal()
+```
+
+This scatter plot visualizes the relationship between FX_Rate (foreign exchange rate) and Enrollment, with the color of the points representing Tuition_Fees. Here's an analysis of the plot:
+
+1. Clustered Enrollment at Low FX_Rate Values:
+Enrollment Distribution: Similar to the previous plot, most of the enrollment data is clustered around low FX_Rate values. This suggests that a majority of students come from countries with stable or relatively low foreign exchange rates.
+Tuition Fees Variation: Within this cluster, the points vary in color from blue to red, indicating a range of tuition fees. This shows that even within countries with lower exchange rates, there is considerable variation in the tuition fees that students pay.
+2. Sparse Data at Higher FX_Rate Values:
+Enrollment Drop: At higher FX_Rate values (around 3000 and 4000), the data points become sparse, indicating fewer enrollments from countries with very high exchange rates. This suggests that countries with weaker currencies relative to the base currency tend to have fewer students enrolling.
+Tuition Fees Variation: The colors of these points indicate that these students are also paying varied tuition fees, although there are fewer data points to analyze. The presence of blue and purple hues in this range indicates lower to mid-range tuition fees for these students.
+3. Impact of Tuition Fees:
+High Tuition Fees (Red Points): Red points indicate higher tuition fees, which appear more frequently within the low FX_Rate cluster. This suggests that students from countries with lower exchange rates are more likely to pay higher tuition fees.
+Low Tuition Fees (Blue Points): Blue points indicate lower tuition fees, which are spread throughout the lower and higher exchange rate ranges. This distribution implies that low tuition fees are accessible to students from both stable and volatile currency regions, although they are still predominantly found in the low FX_Rate cluster.
+4. Relationship Insights:
+Weak Correlation Between FX_Rate and Enrollment: The plot shows that while there is some clustering at low FX_Rate values, overall, the relationship between FX_Rate and Enrollment is not strongly linear. This is evident from the scatter of points across the FX_Rate axis without a clear trend.
+Tuition Fees Influence: Tuition fees do not appear to have a strong linear relationship with Enrollment or FX_Rate, given the mix of colors (tuition fee values) across the plot. However, the higher concentration of red points (higher fees) at low FX_Rate values suggests that students from countries with stronger currencies might be paying more.
+5. Outliers and Patterns:
+Outliers: The plot highlights outliers with very high FX_Rate values and low enrollment numbers. These outliers could represent countries with very weak currencies and fewer students enrolling.
+Color Distribution: The even spread of colors, especially in the low FX_Rate range, suggests that tuition fees vary widely across students from different countries, regardless of their exchange rates.
+Conclusion:
+This scatter plot indicates that while there are patterns in the relationship between FX_Rate and Enrollment, with most enrollments clustered at lower exchange rates, the influence of Tuition_Fees adds complexity to the interpretation. The variation in tuition fees across different FX_Rate values suggests that tuition costs might be influenced by other factors beyond the exchange rate alone. The plot also highlights the need to consider outliers and other economic factors when analyzing student enrollment trends in relation to exchange rates and tuition fees.
+
+
+```{r}
+#adding other numerical variables
+ggplot(data = final_combined_1422_clipped, aes(x = FX_Rate, y = Enrollment, color = Value)) + 
+  geom_point() +
+  scale_color_gradient(low = "blue", high = "red") +  # Color scale from blue to red based on Tuition Fees
+  labs(title = "Enrollment vs FX_Rate with Growth Indicators (GDP/Inflation Values)",
+       x = "FX_Rate",
+       y = "Enrollment") +
+  theme_minimal()
+```
+
+This scatter plot visualizes the relationship between FX_Rate (foreign exchange rate) and Enrollment, with the Value (GDP/Inflation) encoded by the color of the points. Here's what you can infer from the plot:
+
+Clustered Enrollment at Low FX_Rate Values:
+
+The majority of the enrollment values are clustered at lower FX_Rate values (close to zero). This suggests that most of the data points have low exchange rates, which might correspond to countries with stable or less volatile currencies relative to the base currency.
+Within this cluster, there is a high concentration of enrollments at or near 0 on the FX_Rate axis, indicating that many students come from countries with low FX_Rate values.
+Sparse Data at Higher FX_Rate Values:
+
+There are a few scattered data points at higher FX_Rate values (around 3000 and 4000). These outliers represent countries with very high FX_Rate values. These countries have fewer enrollments, as indicated by the sparse distribution of points.
+This might indicate that higher FX_Rate values (weaker currencies relative to the base) could be associated with fewer enrollments, possibly due to the increased financial burden on students from these countries.
+Value (GDP/Inflation) Representation:
+
+The color gradient represents the Value variable, which could be either GDP or inflation values.
+Points with a higher Value (closer to red) are scattered across different FX_Rate values, with some concentration at lower FX_Rate values. This might indicate that even with higher GDP or inflation values, most countries still fall into the lower FX_Rate category.
+There are also points with lower Value (closer to blue) spread throughout, which suggests that countries with different economic conditions (low or high GDP/inflation) can still have a low FX_Rate.
+Interpretation of the Relationship:
+
+The plot suggests a weak or non-linear relationship between FX_Rate and Enrollment. The dense cluster of enrollments at low FX_Rate values and the sparse distribution at higher FX_Rate values might imply that FX_Rate alone is not a strong predictor of enrollment numbers.
+The Value (GDP/Inflation) variable doesn't show a clear pattern in this plot either. There's no strong color gradient pattern indicating a significant correlation between Value and either Enrollment or FX_Rate.
+Outliers and Patterns:
+
+There are clear outliers on the FX_Rate axis, especially those with very high values. These outliers could skew the interpretation if not handled correctly. In a real-world analysis, it might be worth investigating these outliers further to understand the specific conditions of those countries.
+#==============================================================
+
+##Examine the distribution of tuition fees to understand their range and potential impact on enrollment
+```{r}
+# Visualise the distribution of Tuition Fees
+ggplot(final_combined_1422_clipped, aes(x = Tuition_Fees)) + 
+  geom_histogram(binwidth = 500, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Tuition Fees", x = "Tuition Fees", y = "Frequency")
+
+# Density plot
+ggplot(final_combined_1422_clipped, aes(x = Tuition_Fees)) + 
+  geom_density(fill = "lightgreen") +
+  labs(title = "Density Plot of Tuition Fees", x = "Tuition Fees", y = "Density")
+
+# Correlation with Enrollment
+tuition_enrollment_corr <- cor(final_combined_1422_clipped$Tuition_Fees, final_combined_1422_clipped$Enrollment, method = "spearman")
+print(tuition_enrollment_corr)
+
+# Scatter plot to visualise relationship
+ggplot(final_combined_1422_clipped, aes(x = Tuition_Fees, y = Enrollment)) +
+  geom_point(aes(color = Country), alpha = 0.6) +
+  labs(title = "Tuition Fees vs Enrollment", x = "Tuition Fees", y = "Enrollment") +
+  theme_minimal()
+```
+
+
+
+##frequency of visa policy changes to assess their influence on enrollment trends.
+
+```{r}
+# Count the frequency of Visa Policy Changes by Year
+visa_policy_changes <- final_combined_1422_clipped %>%
+  group_by(Fiscal_Year, Visa.Code) %>%
+  summarise(Change_Frequency = n())
+
+# Plot the frequency of visa policy changes over time
+ggplot(visa_policy_changes, aes(x = Fiscal_Year, y = Change_Frequency, fill = Visa.Code)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Frequency of Visa Policy Changes by Year", x = "Year", y = "Frequency") +
+  theme_minimal()
+
+# Enrollment trends with Visa Policy Changes
+ggplot(final_combined_1422_clipped, aes(x = Fiscal_Year, y = Enrollment, group = Visa.Code, color = Visa.Code)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Enrollment Trends with Visa Policy Changes", x = "Year", y = "Enrollment") +
+  theme_minimal()
+```
+The plot you've provided shows the trends in student enrollment over time, categorized by different visa policies (Visa.Code). Here's a breakdown of what this visualization indicates:
+
+General Trends:
+
+Tier 4 Pilot (Purple): This visa category shows consistently high enrollment across multiple years, particularly in the early years (2014-2018). The consistency suggests that this visa category was popular and possibly well-aligned with student needs during these years.
+Tier 4 + Graduate Route (Light Blue): This category shows a noticeable spike starting around 2018 and continuing strongly through to 2019. The spike indicates a significant increase in enrollment under this visa route, which could be due to policy changes making it more attractive, such as extended post-study work opportunities.
+Tier 4 (General) (Green): There is consistent enrollment under this category, but it seems to taper off slightly after 2018, potentially due to students switching to the Tier 4 + Graduate Route or other visa options.
+Student Visa (Red): This category becomes more prominent starting in 2019, indicating a possible policy shift that either introduced or made this visa route more favorable. The upward trend in 2021-2022 suggests an increasing preference for or reliance on this visa category.
+Impact of Visa Policy Changes:
+
+Switch from Tier 4 Pilot to Other Categories: The data suggests a shift in enrollment from the Tier 4 Pilot category to other visa categories starting around 2019. This could be due to policy changes that either phased out the Tier 4 Pilot or made the other visa categories more attractive.
+Growth in Student Visa Enrollment: The sharp increase in the Student Visa category in recent years suggests it became a more viable or popular option for students. This could be due to changes in policy that simplified the visa process or provided additional benefits for students under this visa type.
+Yearly Fluctuations:
+
+2018-2019: This period shows some of the most significant changes, with the introduction and rapid growth of the Tier 4 + Graduate Route. This change indicates a potential policy shift that provided strong incentives for students to opt for this visa type, likely due to favorable post-graduation work opportunities.
+2020 Onwards: The increasing enrollment under the Student Visa category starting in 2020 may reflect adjustments in immigration policy or global events (like the COVID-19 pandemic) that affected visa regulations and student mobility.
+Conclusion
+This plot highlights how visa policy changes directly correlate with shifts in student enrollment. Significant policy introductions or adjustments often lead to immediate changes in enrollment patterns, as seen with the rise of the Tier 4 + Graduate Route and the Student Visa categories. These trends suggest that visa policies are a critical factor in students' decisions to enroll in educational institutions, reflecting their adaptability to regulatory environments. Understanding these trends can help institutions better anticipate and respond to changes in student behavior driven by visa policies.
+
+
+##Correlation Tests
+```{r}
+# Pearson Correlation Test
+pearson_corr <- cor.test(final_combined_1422_clipped$FX_Rate, final_combined_1422_clipped$Enrollment, method = "pearson")
+
+# Print Pearson correlation results
+print("Pearson Correlation: FX on Enrollment Numbers")
+print(pearson_corr)
+
+# Pearson Correlation Test
+pearson_corr2 <- cor.test(final_combined_1422_clipped$Value, final_combined_1422_clipped$Enrollment, method = "pearson")
+
+# Print Pearson correlation results
+print("Pearson Correlation: GDP Value on Enrollment Numbers")
+print(pearson_corr2)
+
+# Pearson Correlation Test
+pearson_corr3 <- cor.test(final_combined_1422_clipped$Tuition_Fees, final_combined_1422_clipped$Enrollment, method = "pearson")
+
+# Print Pearson correlation results
+print("Pearson Correlation: tuition fees on Enrollment Numbers")
+print(pearson_corr3)
+
+# Pearson Correlation Test
+pearson_corr4 <- cor.test(final_combined_1422_clipped$Visa.Fee...., final_combined_1422_clipped$Enrollment, method = "pearson")
+
+# Print Pearson correlation results
+print("Pearson Correlation: Visa fees on Enrollment Numbers")
+print(pearson_corr4)
+
+```
+
+Pearson Correlation Results:
+Correlation Between FX Rate and Enrollment:
+
+Correlation Coefficient (r = -0.1837):
+The correlation between FX rates and enrollment is weakly negative, indicating that higher FX rates are associated with a slight decrease in enrollment.
+p-value (< 2.2e-16):
+The p-value indicates that this correlation is statistically significant, meaning that we have strong evidence to conclude that there is indeed a relationship between FX rates and enrollment.
+Correlation Between GDP Value and Enrollment:
+
+Correlation Coefficient (r = 0.0301):
+The correlation between GDP values and enrollment is very weak and positive. This suggests that changes in GDP values have a minimal impact on enrollment.
+p-value (0.1079):
+The p-value suggests that this correlation is not statistically significant, meaning we do not have sufficient evidence to conclude that there is a meaningful relationship between GDP values and enrollment.
+Correlation Between Tuition Fees and Enrollment:
+
+Correlation Coefficient (r = 0.0466):
+The correlation between tuition fees and enrollment is weakly positive, indicating a slight increase in enrollment with higher tuition fees.
+p-value (0.01268):
+The p-value indicates that this correlation is statistically significant, suggesting that there is evidence of a small but positive relationship between tuition fees and enrollment.
+
+Correlation for Visa Fees on Enrollment:
+Correlation Coefficient (r = -0.0106):
+
+The correlation between visa fees and enrollment is very close to zero, indicating almost no linear relationship between visa fees and the number of enrollments.
+p-value (0.5717):
+
+The p-value is quite high, suggesting that this correlation is not statistically significant. This means that we do not have sufficient evidence to conclude that there is a meaningful relationship between visa fees and enrollment numbers in this dataset.
+95% Confidence Interval (-0.0472 to 0.0261):
+
+The confidence interval crosses zero, further supporting the idea that there is no significant linear relationship between visa fees and enrollment.
+
+Summary:
+FX Rates: There is a weak but statistically significant negative correlation with enrollment, suggesting that as FX rates increase, enrollment tends to decrease slightly.
+GDP Value: The correlation with enrollment is very weak and not statistically significant, indicating that GDP value may not be a strong predictor of enrollment in this dataset.
+Tuition Fees: There is a weak positive correlation with enrollment, which is statistically significant. This suggests that higher tuition fees might be associated with a slight increase in enrollment.
+
+
+
+##One Hot Encoding
+
+```{r}
+# Update the list of categorical columns to include all necessary variables
+categorical_columns <- c("HE.Provider", "Mode.Of..Study", "Country", 
+                         "Visa.Code", "Growth.Indicator", "Visa.After.Graduation", 
+                         "Visa.Work.Requirements.After.Graduation")
+
+# Create a formula for model.matrix, encoding all categorical variables
+formula <- as.formula(paste("~", paste(categorical_columns, collapse = " + "), "- 1"))
+
+# Apply one-hot encoding using model.matrix()
+one_hot_encoded_data <- model.matrix(formula, data = final_combined_1422_clipped)
+
+# Convert the resulting matrix back to a data frame
+one_hot_encoded_df <- as.data.frame(one_hot_encoded_data)
+
+# Combine with the original dataset (excluding the original categorical columns)
+final_combined_1422_encoded <- cbind(final_combined_1422_clipped[, !names(final_combined_1422_clipped) %in% categorical_columns], one_hot_encoded_df)
+
+# View the resulting data frame with one-hot encoded columns
+head(final_combined_1422_encoded)
+```
+
+Correlation
+```{r,echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+
+# Calculate the correlation matrix using pearson
+corrplot(cor(final_combined_1422_encoded[,c("FX_Rate", "Enrollment", "Visa.Fee....","Visa.NHS.Charge....", "Value", "Tuition_Fees", "Visa.Fee..Dependents", "Visa.NHS.Charge.Depen")]), type = 'upper', method = 'number')
+
+# Calculate the correlation matrix using the Spearman method
+cor_matrix <- cor(final_combined_1422_encoded[, c("FX_Rate", "Enrollment", "Visa.Fee....", "Visa.NHS.Charge....", "Value", "Tuition_Fees", "Visa.Fee..Dependents", "Visa.NHS.Charge.Depen")], method = "spearman")
+
+# Visualize the correlation matrix using corrplot
+corrplot(cor_matrix, method = "number", type = "upper")
+
+```
+
+##Identify which currencies have the strongest correlation with enrollment changes.
+```{r}
+#using encoded dataset
+country_list <- c("Gambia", "Ghana", "India", "Japan", "Kenya", "Kuwait", "Libya", "Nigeria", "Oman", "Pakistan", "Tanzania", "Thailand", "Turkey", "Uganda")
+
+#  vector to store correlations
+correlations <- numeric(length(country_list))
+
+# Calculate correlation for each country
+for (i in seq_along(country_list)) {
+  country <- country_list[i]
+  country_enrollment <- final_combined_1422_encoded[[paste0("Country", country)]]
+  correlations[i] <- cor(final_combined_1422_encoded$FX_Rate, country_enrollment, method = "pearson")
+}
+
+# Create named vector for easy reference
+names(correlations) <- country_list
+
+# Sort by absolute value to find the strongest correlations
+sorted_correlations <- sort(abs(correlations), decreasing = TRUE)
+
+# Display the sorted correlations
+sorted_correlations
+```
+```{r}
+#visualise it
+
+barplot(sorted_correlations, 
+        main = "Correlation Between FX_Rate and Enrollment by Country", 
+        las = 2, 
+        col = "lightblue", 
+        ylab = "Absolute Correlation Coefficient",
+        names.arg = names(sorted_correlations))
+```
+
+
+Interpretation of the Results:
+Uganda (0.8269):
+Strong Positive Correlation: Uganda shows a very strong positive correlation between FX rate and enrollment, suggesting that as the Ugandan currency strengthens (i.e., the FX rate increases), enrollment from Uganda increases significantly.
+Tanzania (0.4949):
+
+Moderate Positive Correlation: Tanzania has a moderate positive correlation, meaning changes in the Tanzanian currency are moderately associated with changes in enrollment.
+Kuwait, Oman, Libya, Ghana, Turkey, Thailand, Gambia, India, Kenya, Pakistan:
+
+Weak Positive Correlations: These countries show weaker positive correlations, indicating that while there is some relationship between FX rate and enrollment, it is not particularly strong. This could mean that other factors might be more influential in driving enrollment from these countries.
+Japan (0.0869) and Nigeria (0.0350):
+
+Very Weak Positive Correlations: The correlation for Japan and Nigeria is very weak, suggesting that FX rate changes in these countries have little to no impact on enrollment numbers.
+
+General Observations:
+Uganda stands out as having a very strong correlation, meaning its enrollment numbers are highly sensitive to currency fluctuations.
+Most other countries have relatively low correlations, suggesting that factors other than the FX rate might play a more significant role in affecting enrollment from these countries.
+
+
+## Correlation and Multivariate Analyis to explore how other variables affect enrollment
+```{r}
+# Ensure Fiscal_Year is numeric
+final_combined_1422_encoded <- final_combined_1422_encoded %>%
+  mutate(Fiscal_Year = as.numeric(as.character(Fiscal_Year)))
+
+# Calculate correlation matrix including new variables
+cor_matrix1 <- cor(final_combined_1422_encoded[, c("Enrollment", "FX_Rate", "Visa.Fee....", "Tuition_Fees", "Value",)], method = 'spearman')
+
+# Visualize the correlation matrix
+corrplot(cor_matrix1, method = "number")
+
+# Scatter plot of Enrollment vs. Visa Fees with color representing Tuition Fees
+ggplot(final_combined_1422_encoded, aes(x = Visa.Fee...., y = Enrollment, color = Tuition_Fees)) +
+  geom_point() +
+  labs(title = "Enrollment vs Visa Fees by Tuition Fees and Economic Indicators (GDP/Inflation)", x = "Visa Fees", y = "Enrollment")
+
+# Regression model
+model <- lm(Enrollment ~ FX_Rate + Visa.Fee.... + Tuition_Fees + Value, data = final_combined_1422_encoded)
+summary(model)
+
+# Feature Importance using Random Forest
+rf_model <- randomForest(Enrollment ~ FX_Rate + Visa.Fee.... + Tuition_Fees + Value, data = final_combined_1422_encoded)
+importance(rf_model)
+```
+Summary of results
+
+The model exhibited limited explanatory power, with an R-squared of only 0.03311, indicating that it accounts for a mere 3.311% of the variance in enrollment.
+
+The exchange rate emerged as the most influential predictor, as evidenced by its significantly higher importance score of 36,437,410 in the random forest model compared to other variables. Conversely, while tuition fees displayed a small but statistically significant positive relationship with enrollment in the linear model, its importance score of 12,775,639 in the random forest model suggests a more complex influence. Visa fees, on the other hand, demonstrated no significant impact on enrollment in the linear model.
+
+The model's relatively low adjusted R-squared of 0.03229 and residual standard error of 180.2 underscore its limited predictive accuracy. Consequently, additional factors beyond those considered in the model likely contribute significantly to enrollment variations.
+
+To enhance the model's predictive capabilities and gain deeper insights into the factors driving enrollment, incorporating additional variables and exploring non-linear modeling techniques is recommended.
+
+#========
+
+##Adding more variables (visa policies etc )
+
+```{r}
+# Calculate correlation matrix including new variables
+# Convert correlation matrix to data frame
+cor_matrix_df <- as.data.frame(cor_matrix2)
+
+# Display the correlation matrix as a table
+print(cor_matrix_df)
+
+# Regression model including new variables
+model_new <- lm(Enrollment ~ FX_Rate + Visa.Fee.... + Tuition_Fees + Value + 
+                `Visa.CodeTier 4 (General)` + `Visa.CodeTier 4 + Graduate Route` +
+                `Visa.CodeTier 4 Pilot` + `Visa.After.GraduationTier 2 Only` + 
+                `Visa.After.GraduationYes` + `Visa.Work.Requirements.After.GraduationGraduate Route for 2 years` + 
+                `Visa.Work.Requirements.After.GraduationNone`, 
+               data = final_combined_1422_encoded)
+
+```
+
+
+```{r}
+
+
+```
+
+
+

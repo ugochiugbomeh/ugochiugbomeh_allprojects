@@ -1,0 +1,42 @@
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+data = read.csv("C:/Users/obouk/OneDrive/Bureau/gdp_inf_semi_clean.csv")
+
+
+data_long = data %>%
+  pivot_longer(cols = -c(Country, Country.Code, Growth.Indicator),
+               names_to = "Year",
+               values_to = "Value")
+data_long$Country <- as.factor(data_long$Country)
+
+#GDP graph
+gdp_graph = ggplot(data_long %>% filter(Growth.Indicator == "GDP (annual %)"),
+                    aes(x = Year, y = Value, color = Country, group = Country)) +
+  geom_line() +
+  labs(title = "GDP (annual %) by Country",
+       subtitle = "Over the years",
+       x = "Year",
+       y = "GDP (annual %)") +
+  theme_classic() +
+  theme(legend.position = "bottom",
+        panel.grid.major = element_line(size = 0.5, linetype = "dotted", color = "gray"),
+        panel.grid.minor = element_line(size = 0.25, linetype = "dotted", color = "gray"))
+
+print(gdp_graph)
+
+#Inflation graph
+inflation_graph = ggplot(data_long %>% filter(Growth.Indicator == "Inflation (annual %)"),
+                          aes(x = Year, y = Value, color = Country, group = Country)) +
+  geom_line() +
+  labs(title = "Inflation (annual %) by Country",
+       subtitle = "Over the years",
+       x = "Year",
+       y = "Inflation (annual %)") +
+  theme_classic() +
+  theme(legend.position = "bottom",
+        panel.grid.major = element_line(size = 0.5, linetype = "dotted", color = "gray"),
+        panel.grid.minor = element_line(size = 0.25, linetype = "dotted", color = "gray"))
+
+print(inflation_graph)
